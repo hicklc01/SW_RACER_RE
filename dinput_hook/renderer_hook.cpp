@@ -157,7 +157,7 @@ void glDrawAABBLines(const rdVector3 &aabb_min, const rdVector3 &aabb_max) {
 
 struct Vertex {
     rdVector3 pos;
-    float tu, tv;
+    uint16_t tu, tv;
     union {
         struct {
             rdVector4 color;
@@ -173,7 +173,6 @@ struct Render_Cache {
     rdMatrix44 Begin;
     rdMatrix44 End;
     std::vector<Vertex> triangles;
-    std::vector<uint32_t> indicies;
     uint8_t vertex_base_offset;
 };
 
@@ -200,38 +199,90 @@ void generate_render_cache(const rdMatrix44 &model_matrix, const swrModel_Mesh *
     bool vertices_have_normals = mesh->mesh_material->type & 0x11;
     
 
-    cache.triangles.resize(mesh->converted_mesh->numVertices);
-    for (int i = 0; i < mesh->converted_mesh->numVertices; i++) {
-        cache.triangles[i].tu = mesh->converted_mesh->apTexVertices[i].x / 255.0;
-        cache.triangles[i].tv = mesh->converted_mesh->apTexVertices[i].y / 255.0;
 
-        cache.triangles[i].pos.x = mesh->converted_mesh->apVertices[i].x;
-        cache.triangles[i].pos.y = mesh->converted_mesh->apVertices[i].y;
-        cache.triangles[i].pos.z = mesh->converted_mesh->apVertices[i].z;
+
+    auto load_vertex = [&](Vtx *ptr) {
+        // TODO
+        rdMatrix44 normal_matrix = model_matrix;
+
+        Vtx v = *ptr;
+        v.v.x = SWAP16(v.v.x);
+        v.v.y = SWAP16(v.v.y);
+        v.v.z = SWAP16(v.v.z);
+        v.v.u = SWAP16(v.v.u);
+        v.v.v = SWAP16(v.v.v);
+
+        Vertex vf{};
+        vf.pos.x = v.v.x;
+        vf.pos.y = v.v.y;
+        vf.pos.z = v.v.z;
+
+        vf.tu = v.v.u;
+        vf.tv = v.v.v;
+
         if (vertices_have_normals) {
-            cache.triangles[i].normal.x = mesh->converted_mesh->aVertNormals[i].x ;
-            cache.triangles[i].normal.y = mesh->converted_mesh->aVertNormals[i].y ;
-            cache.triangles[i].normal.z = mesh->converted_mesh->aVertNormals[i].z ;
-            cache.triangles[i].alpha = mesh->converted_mesh->aVertColors[i].z ;
+            vf.normal.x = v.n.nx / 128.0;
+            vf.normal.y = v.n.ny / 128.0;
+            vf.normal.z = v.n.nz / 128.0;
+            vf.alpha = v.n.a / 255.0;
+
         } else {
-            cache.triangles[i].color.x = mesh->converted_mesh->aVertColors[i].x ;
-            cache.triangles[i].color.y = mesh->converted_mesh->aVertColors[i].y ;
-            cache.triangles[i].color.z = mesh->converted_mesh->aVertColors[i].z ;
-            cache.triangles[i].color.w = mesh->converted_mesh->aVertColors[i].w ;
+            vf.color.x = v.v.r / 255.0;
+            vf.color.y = v.v.g / 255.0;
+            vf.color.z = v.v.b / 255.0;
+            vf.color.w = v.v.a / 255.0;
         }
-    }
+        return vf;
+    };
 
+    Vertex vertices[32];
 
-    for (int i = 0; i<mesh->converted_mesh->numFaces; i++) {
-        for (int j = 0; j < mesh->converted_mesh->aFaces[i].numVertices; j++) {
-            cache.indicies.push_back(mesh->converted_mesh->aFaces[i].aVertIdxs[j]);
-            auto tex = mesh->converted_mesh->apTexVertices[mesh->converted_mesh->aFaces[i].aTexIdxs[j]];
-            
-            cache.triangles[mesh->converted_mesh->aFaces[i].aVertIdxs[j]].tu = tex.x;
+    const Gfx *command = swrModel_MeshGetDisplayList(mesh);
+    while (command->type != 0xdf) {
+        switch (command->type) {
+            case 0x1: {
+                const uint8_t n = (SWAP16(command->gSPVertex.n_packed) >> 4) & 0xFF;
+                const uint8_t v0 = command->gSPVertex.v0_plus_n - n;
+                if (v0 != mesh->vertex_base_offset)
+                    std::abort();
 
-            cache.triangles[mesh->converted_mesh->aFaces[i].aVertIdxs[j]].tv = tex.y;
-            
+                if (v0 + n > 32)
+                    std::abort();
+
+                if (v0 != 0) {
+                    const rdMatrix44 &prev_matrix =
+                        cached_model_matrix.at(mesh->referenced_node->meshes[0]);
+                    for (int i = 0; i < v0; i++)
+                        vertices[i] =
+                            load_vertex(command->gSPVertex.vertex_offset - v0 + i);
+                }
+
+                for (int i = 0; i < n; i++) {
+                    vertices[v0 + i] =
+                        load_vertex( command->gSPVertex.vertex_offset + i);
+                }
+                break;
+            }
+            case 0x3:
+                break;
+            case 0x5:
+                cache.triangles.push_back(vertices[command->gSP1Triangle.index0 / 2]);
+                cache.triangles.push_back(vertices[command->gSP1Triangle.index1 / 2]);
+                cache.triangles.push_back(vertices[command->gSP1Triangle.index2 / 2]);
+                break;
+            case 0x6:
+                cache.triangles.push_back(vertices[command->gSP1Triangle.index0 / 2]);
+                cache.triangles.push_back(vertices[command->gSP1Triangle.index1 / 2]);
+                cache.triangles.push_back(vertices[command->gSP1Triangle.index2 / 2]);
+
+                cache.triangles.push_back(vertices[command->gSP2Triangles.index3 / 2]);
+                cache.triangles.push_back(vertices[command->gSP2Triangles.index4 / 2]);
+                cache.triangles.push_back(vertices[command->gSP2Triangles.index5 / 2]);
+                break;
+            default:
+                std::abort();
         }
+        command++;
     }
 }
 
@@ -491,7 +542,7 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
 
     glUniform1i(shader.vertex_base_offset, mesh_cache->vertex_base_offset);
 
-    glDrawElements(GL_TRIANGLES, mesh_cache->indicies.size(), GL_UNSIGNED_INT, &mesh_cache->indicies[0]);
+    glDrawArrays(GL_TRIANGLES, 0, mesh_cache->triangles.size());
     
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
