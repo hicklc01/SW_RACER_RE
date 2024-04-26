@@ -144,16 +144,22 @@ out float passZ;
 uniform float nearPlane;
 uniform mat4 projMatrix;
 uniform mat4 viewMatrix;
-uniform mat4 modelMatrix;
+
+uniform mat4 beginMatrix;
+uniform mat4 endMatrix;
+uniform int vertex_base_offset;
+
 uniform vec2 uvOffset;
 uniform vec2 uvScale;
 
 void main() {
-    vec4 posView = viewMatrix * modelMatrix * vec4(position, 1);
+    mat4 modMat = gl_VertexID < vertex_base_offset ? beginMatrix : endMatrix;
+
+    vec4 posView = viewMatrix * modMat * vec4(position, 1);
     gl_Position = projMatrix * posView;
     passColor = color;
     passUV = uv / (uvScale * 4096.0) + uvOffset;
-    passNormal = normalize(transpose(inverse(mat3(modelMatrix))) * normal);
+    passNormal = normalize(transpose(inverse(mat3(modMat))) * normal);
     passZ = -posView.z;
 }
 )";
@@ -242,7 +248,9 @@ void main() {
         .handle = program,
         .proj_matrix_pos = glGetUniformLocation(program, "projMatrix"),
         .view_matrix_pos = glGetUniformLocation(program, "viewMatrix"),
-        .model_matrix_pos = glGetUniformLocation(program, "modelMatrix"),
+        .model_matrix_begin = glGetUniformLocation(program, "beginMatrix"),
+        .model_matrix_end = glGetUniformLocation(program, "endMatrix"),
+        .vertex_base_offset = glGetUniformLocation(program, "vertex_base_offset"),
         .uv_offset_pos = glGetUniformLocation(program, "uvOffset"),
         .uv_scale_pos = glGetUniformLocation(program, "uvScale"),
         .primitive_color_pos = glGetUniformLocation(program, "primitiveColor"),

@@ -157,7 +157,7 @@ void glDrawAABBLines(const rdVector3 &aabb_min, const rdVector3 &aabb_max) {
 
 struct Vertex {
     rdVector3 pos;
-    uint16_t tu, tv;
+    float tu, tv;
     union {
         struct {
             rdVector4 color;
@@ -168,6 +168,74 @@ struct Vertex {
         };
     };
 };
+
+struct Render_Cache {
+    rdMatrix44 Begin;
+    rdMatrix44 End;
+    std::vector<Vertex> triangles;
+    std::vector<uint32_t> indicies;
+    uint8_t vertex_base_offset;
+};
+
+
+
+void generate_render_cache(const rdMatrix44 &model_matrix, const swrModel_Mesh *mesh,
+                           Render_Cache &cache) {
+    static std::map<const swrModel_Mesh *, rdMatrix44> cached_model_matrix;
+    cached_model_matrix[mesh] = model_matrix;
+    if (mesh->referenced_node)
+        cache.Begin = cached_model_matrix[mesh->referenced_node->meshes[0]];
+    else
+        cache.Begin = model_matrix;
+    cache.End = model_matrix;
+
+    if (cache.triangles.size() > 0)
+        return;
+
+    swrModel_MeshGetDisplayList(mesh);
+
+
+    cache.vertex_base_offset = mesh->vertex_base_offset;
+
+    bool vertices_have_normals = mesh->mesh_material->type & 0x11;
+    
+
+    cache.triangles.resize(mesh->converted_mesh->numVertices);
+    for (int i = 0; i < mesh->converted_mesh->numVertices; i++) {
+        cache.triangles[i].tu = mesh->converted_mesh->apTexVertices[i].x / 255.0;
+        cache.triangles[i].tv = mesh->converted_mesh->apTexVertices[i].y / 255.0;
+
+        cache.triangles[i].pos.x = mesh->converted_mesh->apVertices[i].x;
+        cache.triangles[i].pos.y = mesh->converted_mesh->apVertices[i].y;
+        cache.triangles[i].pos.z = mesh->converted_mesh->apVertices[i].z;
+        if (vertices_have_normals) {
+            cache.triangles[i].normal.x = mesh->converted_mesh->aVertNormals[i].x ;
+            cache.triangles[i].normal.y = mesh->converted_mesh->aVertNormals[i].y ;
+            cache.triangles[i].normal.z = mesh->converted_mesh->aVertNormals[i].z ;
+            cache.triangles[i].alpha = mesh->converted_mesh->aVertColors[i].z ;
+        } else {
+            cache.triangles[i].color.x = mesh->converted_mesh->aVertColors[i].x ;
+            cache.triangles[i].color.y = mesh->converted_mesh->aVertColors[i].y ;
+            cache.triangles[i].color.z = mesh->converted_mesh->aVertColors[i].z ;
+            cache.triangles[i].color.w = mesh->converted_mesh->aVertColors[i].w ;
+        }
+    }
+
+
+    for (int i = 0; i<mesh->converted_mesh->numFaces; i++) {
+        for (int j = 0; j < mesh->converted_mesh->aFaces[i].numVertices; j++) {
+            cache.indicies.push_back(mesh->converted_mesh->aFaces[i].aVertIdxs[j]);
+            auto tex = mesh->converted_mesh->apTexVertices[mesh->converted_mesh->aFaces[i].aTexIdxs[j]];
+            
+            cache.triangles[mesh->converted_mesh->aFaces[i].aVertIdxs[j]].tu = tex.x;
+
+            cache.triangles[mesh->converted_mesh->aFaces[i].aVertIdxs[j]].tv = tex.y;
+            
+        }
+    }
+}
+
+/* 
 
 void parse_display_list_commands(const rdMatrix44 &model_matrix, const swrModel_Mesh *mesh,
                                  std::vector<Vertex> &triangles) {
@@ -267,6 +335,11 @@ void parse_display_list_commands(const rdMatrix44 &model_matrix, const swrModel_
     }
 }
 
+*/
+
+
+
+
 void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabled_lights,
                        bool mirrored, const rdMatrix44 &proj_matrix, const rdMatrix44 &view_matrix,
                        const rdMatrix44 &model_matrix) {
@@ -359,17 +432,14 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
         // double sided geometry.
         glDisable(GL_CULL_FACE);
     }
-
     const auto shader = get_or_compile_color_combine_shader(
         {color_cycle1, alpha_cycle1, color_cycle2, alpha_cycle2});
+
     glUseProgram(shader.handle);
 
     glUniformMatrix4fv(shader.proj_matrix_pos, 1, GL_FALSE, &proj_matrix.vA.x);
     glUniformMatrix4fv(shader.view_matrix_pos, 1, GL_FALSE, &view_matrix.vA.x);
 
-    rdMatrix44 identity_mat;
-    rdMatrix_SetIdentity44(&identity_mat);
-    glUniformMatrix4fv(shader.model_matrix_pos, 1, GL_FALSE, &identity_mat.vA.x);
     glUniform2f(shader.uv_offset_pos, uv_offset_x, uv_offset_y);
     glUniform2f(shader.uv_scale_pos, uv_scale_x, uv_scale_y);
 
@@ -401,17 +471,28 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
     glEnableVertexAttribArray(1);
     glEnableVertexAttribArray(2);
     glEnableVertexAttribArray(3);
+    
 
-    static std::vector<Vertex> triangles;
-    parse_display_list_commands(model_matrix, mesh, triangles);
+    static std::map<const swrModel_Mesh *, Render_Cache *> cache;
+    if (cache.find(mesh) == cache.end()) {
+        cache[mesh] = new Render_Cache{};
+    }
+    Render_Cache *mesh_cache = cache[mesh];
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(triangles[0]), &triangles[0].pos);
-    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(triangles[0]), &triangles[0].color);
-    glVertexAttribPointer(2, 2, GL_SHORT, GL_FALSE, sizeof(triangles[0]), &triangles[0].tu);
-    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(triangles[0]), &triangles[0].normal);
+    generate_render_cache(model_matrix, mesh, *mesh_cache);
+    
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(mesh_cache->triangles[0]), &mesh_cache->triangles[0].pos);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(mesh_cache->triangles[0]), &mesh_cache->triangles[0].color);
+    glVertexAttribPointer(2, 2, GL_SHORT, GL_FALSE, sizeof(mesh_cache->triangles[0]), &mesh_cache->triangles[0].tu);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(mesh_cache->triangles[0]), &mesh_cache->triangles[0].normal);
 
-    glDrawArrays(GL_TRIANGLES, 0, triangles.size());
+    glUniformMatrix4fv(shader.model_matrix_begin, 1, GL_FALSE, &mesh_cache->Begin.vA.x);
+    glUniformMatrix4fv(shader.model_matrix_end, 1, GL_FALSE, &mesh_cache->End.vA.x);
 
+    glUniform1i(shader.vertex_base_offset, mesh_cache->vertex_base_offset);
+
+    glDrawElements(GL_TRIANGLES, mesh_cache->indicies.size(), GL_UNSIGNED_INT, &mesh_cache->indicies[0]);
+    
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
     glDisableVertexAttribArray(2);

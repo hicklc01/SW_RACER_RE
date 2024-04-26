@@ -72,7 +72,7 @@ int stdDisplay_Update_Hook() {
                                 (IDirectDrawSurface4 *) stdDisplay_g_backBuffer.pVSurface.pDDSurf))
             std::abort();
 
-        WndProcOrig = (WNDPROC) SetWindowLongA(wnd, GWL_WNDPROC, (LONG) WndProc);
+        WndProcOrig = (WNDPROC) SetWindowLongA(wnd, GWLP_WNDPROC, (LONG) WndProc);
 
         fprintf(hook_log, "[D3DDrawSurfaceToWindow] imgui initialized.\n");
     }

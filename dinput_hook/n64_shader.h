@@ -135,7 +135,9 @@ struct ColorCombineShader {
     GLuint handle;
     GLint proj_matrix_pos;
     GLint view_matrix_pos;
-    GLint model_matrix_pos;
+    GLint model_matrix_begin;
+    GLint model_matrix_end;
+    GLint vertex_base_offset;
     GLint uv_offset_pos;
     GLint uv_scale_pos;
     GLint primitive_color_pos;
