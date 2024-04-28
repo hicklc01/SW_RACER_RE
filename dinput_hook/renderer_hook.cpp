@@ -191,20 +191,11 @@ void generate_render_cache(const rdMatrix44 &model_matrix, const swrModel_Mesh *
     if (cache.triangles.size() > 0)
         return;
 
-    swrModel_MeshGetDisplayList(mesh);
-
-
     cache.vertex_base_offset = mesh->vertex_base_offset;
 
     bool vertices_have_normals = mesh->mesh_material->type & 0x11;
     
-
-
-
     auto load_vertex = [&](Vtx *ptr) {
-        // TODO
-        rdMatrix44 normal_matrix = model_matrix;
-
         Vtx v = *ptr;
         v.v.x = SWAP16(v.v.x);
         v.v.y = SWAP16(v.v.y);
@@ -250,16 +241,12 @@ void generate_render_cache(const rdMatrix44 &model_matrix, const swrModel_Mesh *
                     std::abort();
 
                 if (v0 != 0) {
-                    const rdMatrix44 &prev_matrix =
-                        cached_model_matrix.at(mesh->referenced_node->meshes[0]);
                     for (int i = 0; i < v0; i++)
-                        vertices[i] =
-                            load_vertex(command->gSPVertex.vertex_offset - v0 + i);
+                        vertices[i] = load_vertex(command->gSPVertex.vertex_offset - v0 + i);
                 }
 
                 for (int i = 0; i < n; i++) {
-                    vertices[v0 + i] =
-                        load_vertex( command->gSPVertex.vertex_offset + i);
+                    vertices[v0 + i] = load_vertex(command->gSPVertex.vertex_offset + i);
                 }
                 break;
             }
@@ -285,111 +272,6 @@ void generate_render_cache(const rdMatrix44 &model_matrix, const swrModel_Mesh *
         command++;
     }
 }
-
-/* 
-
-void parse_display_list_commands(const rdMatrix44 &model_matrix, const swrModel_Mesh *mesh,
-                                 std::vector<Vertex> &triangles) {
-    triangles.clear();
-
-    static std::map<const swrModel_Mesh *, rdMatrix44> cached_model_matrix;
-    cached_model_matrix[mesh] = model_matrix;
-
-    bool vertices_have_normals = mesh->mesh_material->type & 0x11;
-    auto load_vertex = [&](const rdMatrix44 &model_matrix, Vtx *ptr) {
-        // TODO
-        rdMatrix44 normal_matrix = model_matrix;
-
-        Vtx v = *ptr;
-        v.v.x = SWAP16(v.v.x);
-        v.v.y = SWAP16(v.v.y);
-        v.v.z = SWAP16(v.v.z);
-        v.v.u = SWAP16(v.v.u);
-        v.v.v = SWAP16(v.v.v);
-
-        Vertex vf{};
-        vf.pos.x = v.v.x;
-        vf.pos.y = v.v.y;
-        vf.pos.z = v.v.z;
-
-        // pretransform position
-        rdMatrix_Transform3(&vf.pos, &vf.pos, &model_matrix);
-
-        vf.tu = v.v.u;
-        vf.tv = v.v.v;
-
-        if (vertices_have_normals) {
-            vf.normal.x = v.n.nx / 128.0;
-            vf.normal.y = v.n.ny / 128.0;
-            vf.normal.z = v.n.nz / 128.0;
-            vf.alpha = v.n.a / 255.0;
-
-            // pretransform normal
-            rdMatrix_Multiply3(&vf.normal, &vf.normal, &normal_matrix);
-        } else {
-            vf.color.x = v.v.r / 255.0;
-            vf.color.y = v.v.g / 255.0;
-            vf.color.z = v.v.b / 255.0;
-            vf.color.w = v.v.a / 255.0;
-        }
-        return vf;
-    };
-
-    Vertex vertices[32];
-
-    const Gfx *command = swrModel_MeshGetDisplayList(mesh);
-    while (command->type != 0xdf) {
-        switch (command->type) {
-            case 0x1: {
-                const uint8_t n = (SWAP16(command->gSPVertex.n_packed) >> 4) & 0xFF;
-                const uint8_t v0 = command->gSPVertex.v0_plus_n - n;
-                if (v0 != mesh->vertex_base_offset)
-                    std::abort();
-
-                if (v0 + n > 32)
-                    std::abort();
-
-                if (v0 != 0) {
-                    const rdMatrix44 &prev_matrix =
-                        cached_model_matrix.at(mesh->referenced_node->meshes[0]);
-                    for (int i = 0; i < v0; i++)
-                        vertices[i] =
-                            load_vertex(prev_matrix, command->gSPVertex.vertex_offset - v0 + i);
-                }
-
-                for (int i = 0; i < n; i++) {
-                    vertices[v0 + i] =
-                        load_vertex(model_matrix, command->gSPVertex.vertex_offset + i);
-                }
-                break;
-            }
-            case 0x3:
-                break;
-            case 0x5:
-                triangles.push_back(vertices[command->gSP1Triangle.index0 / 2]);
-                triangles.push_back(vertices[command->gSP1Triangle.index1 / 2]);
-                triangles.push_back(vertices[command->gSP1Triangle.index2 / 2]);
-                break;
-            case 0x6:
-                triangles.push_back(vertices[command->gSP1Triangle.index0 / 2]);
-                triangles.push_back(vertices[command->gSP1Triangle.index1 / 2]);
-                triangles.push_back(vertices[command->gSP1Triangle.index2 / 2]);
-
-                triangles.push_back(vertices[command->gSP2Triangles.index3 / 2]);
-                triangles.push_back(vertices[command->gSP2Triangles.index4 / 2]);
-                triangles.push_back(vertices[command->gSP2Triangles.index5 / 2]);
-                break;
-            default:
-                std::abort();
-        }
-        command++;
-    }
-}
-
-*/
-
-
-
 
 void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabled_lights,
                        bool mirrored, const rdMatrix44 &proj_matrix, const rdMatrix44 &view_matrix,

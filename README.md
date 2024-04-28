@@ -33,11 +33,26 @@ before using the scripts to import functions prototypes via headers. Global vari
 data\_symbols.syms file using the `GenerateGlobalHeaderFromSymbols.py` script in the `scripts/` directory. This will automatically
 be generated at compile time when using the cmake build.
 
-Update all submodules (for developpement purposes only):
+Update all submodules (for developement purposes only): 
+	NOTE: Not all submodules exist and an error may occure if your git application auto pulls submodules. None are needed for compiling dinput.dll
 `git submodule update --init --recursive`
 
 ## Development
 
+### Visual Studio
+
+```
+>cd build
+>cmake .. -G "Visual Studio 17 2022" -A Win32 -DGAME_DIR="C:/PATH/TO/GAME/Star Wars racer"
+```
+
+Right click on the dinput_hook and click "Set as Startup Project" 
+
+Right click on the dinput_hook and click properties
+
+Under the Configuration Progperties -> Debugging set command to be "$(OutDir)/SWEP1RCR.exe" and Working Directory as "$(OutDir)". Optionally set Command Arguments as "-i" to skip intro
+
+### MinGW
 Use 32-Bit MinGW and CMake to build the `dinput.dll` hook ([WinLibs GCC 13.2.0 (POSIX threads) + MinGW-w64 11.0.1 UCRT (release 5) i686](https://github.com/brechtsanders/winlibs_mingw/releases/tag/13.2.0posix-17.0.6-11.0.1-ucrt-r5) is known to work). If `-DGAME_DIR=<game directory>` is passed as a CMake parameter the compiled `dinput.dll` is automatically placed into the game directory.
 
 The hook writes debug information into `hook.log` while running and makes all original game functions callable, as long as they have a valid address and function prototype in `./src`.
